@@ -24,7 +24,7 @@ function check_op(ir::IRCode, domtree::DomTree, @nospecialize(op), use_bb::Int, 
         else
             if !dominates(domtree, def_bb, use_bb)
                 enable_new_optimizer[] = false
-                @show ir
+                #@Base.show ir
                 @verify_error "Basic Block $def_bb does not dominate block $use_bb (tried to use value $(op.id))"
                 error()
             end

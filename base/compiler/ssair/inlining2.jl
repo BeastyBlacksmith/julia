@@ -251,11 +251,6 @@ function ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, t
     end
     # If the iterator already moved on to the next basic block,
     # temorarily re-open in again.
-    refinish = false
-    if compact.result_idx == first(compact.result_bbs[compact.active_result_bb].stmts)
-        compact.active_result_bb -= 1
-        refinish = true
-    end
     local return_value
     # Special case inlining that maintains the current basic block if there's only one BB in the target
     if item.linear_inline_eligible
@@ -277,7 +272,6 @@ function ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, t
         end
         just_fixup!(inline_compact)
         compact.result_idx = inline_compact.result_idx
-        refinish && finish_current_bb!(compact)
     else
         bb_offset, post_bb_id = popfirst!(todo_bbs)
         # This implements the need_split_before flag above
@@ -322,7 +316,6 @@ function ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, t
         else
             return_value = insert_node_here!(compact, pn, stmt.typ, compact.result_lines[idx])
         end
-        refinish && finish_current_bb!(compact)
     end
     return_value
 end
@@ -432,6 +425,11 @@ function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfo
         for (idx, stmt) in compact
             if compact.idx - 1 == inline_idx
                 argexprs = copy(stmt.args)
+                refinish = false
+                if compact.result_idx == first(compact.result_bbs[compact.active_result_bb].stmts)
+                    compact.active_result_bb -= 1
+                    refinish = true
+                end
                 # At the moment we will allow globalrefs in argument position, turn those into ssa values
                 for aidx in 1:length(argexprs)
                     aexpr = argexprs[aidx]
@@ -440,8 +438,8 @@ function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfo
                     end
                 end
                 if item.isinvoke
-                    argexprs = rewrite_exprargs((node, typ)->insert_node_here!(compact, node, typ, compact.result_lines[idx]),
-                                                arg->compact_exprtype(compact, arg), item.isinvoke, item.isapply, argexprs)
+                    argexprs = rewrite_invoke_exprargs!((node, typ)->insert_node_here!(compact, node, typ, compact.result_lines[idx]),
+                                                arg->compact_exprtype(compact, arg), argexprs)
                 end
                 if isa(item, InliningTodo)
                     compact.ssa_rename[compact.idx-1] = ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, state.todo_bbs)
@@ -449,6 +447,7 @@ function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfo
                     ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, boundscheck, state.todo_bbs)
                 end
                 compact[idx] = nothing
+                refinish && finish_current_bb!(compact)
                 if !isempty(todo)
                     item = popfirst!(todo)
                     inline_idx = item.idx
@@ -827,7 +826,6 @@ function assemble_inline_todo!(ir::IRCode, linetable::Vector{LineInfoNode}, sv::
         signature_union = Union{Any[match[1]::Type for match in meth]...}
         signature_fully_covered = atype <: signature_union
         fully_covered = signature_fully_covered
-        @Base.show meth
         for match in meth
             metharg = match[1]::Type
             methsp = match[2]::SimpleVector
@@ -854,7 +852,7 @@ function assemble_inline_todo!(ir::IRCode, linetable::Vector{LineInfoNode}, sv::
                         fully_covered = false
                         continue
                     end
-                    push!(cases, metharg′=>case)
+                    push!(cases, Pair{Type,Any}(metharg′, case))
                 end
             else
                 case = analyze_method!(ir, idx, f, ft, metharg, methsp, method, stmt, atypes, sv, atype_unlimited, isinvoke, isapply, invoke_data)
@@ -862,7 +860,7 @@ function assemble_inline_todo!(ir::IRCode, linetable::Vector{LineInfoNode}, sv::
                     fully_covered = false
                     continue
                 end
-                push!(cases, metharg=>case)
+                push!(cases, Pair{Type,Any}(metharg, case))
             end
         end
         # If we're fully covered and there's only one applicable method,
@@ -874,7 +872,7 @@ function assemble_inline_todo!(ir::IRCode, linetable::Vector{LineInfoNode}, sv::
             fully_covered = true
             case = analyze_method!(ir, idx, f, ft, metharg, methsp, method, stmt, atypes, sv, atype_unlimited, isinvoke, isapply, invoke_data)
             case == nothing && continue
-            push!(cases, metharg=>case)
+            push!(cases, Pair{Type,Any}(metharg, case))
         end
         # If we only have one case and that case is fully covered, we may either
         # be able to do the inlining now (for constant cases, or push it directly)
