@@ -227,7 +227,7 @@ function finish_cfg_inline!(state::CFGInliningState)
     end
 end
 
-function ir_inline_item!(compact, idx, argexprs, linetable, item, todo_bbs)
+function ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, todo_bbs)
     # Ok, do the inlining here
     inline_cfg = item.ir.cfg
     stmt = compact.result[idx]
@@ -329,7 +329,7 @@ function ir_inline_item!(compact, idx, argexprs, linetable, item, todo_bbs)
     return_value
 end
 
-function ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, todo_bbs)
+function ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, boundscheck, todo_bbs)
     stmt, typ, line = compact.result[idx], compact.result_types[idx], compact.result_lines[idx]
     atype = item.atype
     generic_bb = item.bbs[end-1]
@@ -368,7 +368,7 @@ function ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, todo_bbs
         end
         # Insert Pi nodes here
         if isa(case, InliningTodo)
-            val = ir_inline_item!(compact, idx, argexprs, linetable, case, todo_bbs)
+            val = ir_inline_item!(compact, idx, argexprs, linetable, case, boundscheck, todo_bbs)
         elseif isa(case, MethodInstance)
             # Make it an Expr(:invoke)
             error()
@@ -403,11 +403,6 @@ function ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, todo_bbs
 end
 
 function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfoNode}, sv::OptimizationState)
-    boundscheck = inbounds_option()
-    if boundscheck === :default && sv.src.propagate_inbounds
-        boundscheck = :propagate
-    end
-
     # Compute the new CFG first (modulo statement ranges, which will be computed below)
     state = CFGInliningState(ir)
     for item in todo
@@ -421,6 +416,11 @@ function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfo
         end
     end
     finish_cfg_inline!(state)
+
+    boundscheck = inbounds_option()
+    if boundscheck === :default && sv.src.propagate_inbounds
+        boundscheck = :propagate
+    end
 
     let compact = IncrementalCompact(ir)
         compact.result_bbs = state.new_cfg_blocks
@@ -446,9 +446,9 @@ function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfo
                                                 arg->compact_exprtype(compact, arg), item.isinvoke, item.isapply, argexprs)
                 end
                 if isa(item, InliningTodo)
-                    compact.ssa_rename[compact.idx-1] = ir_inline_item!(compact, idx, argexprs, linetable, item, state.todo_bbs)
+                    compact.ssa_rename[compact.idx-1] = ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, state.todo_bbs)
                 elseif isa(item, UnionSplit)
-                    ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, state.todo_bbs)
+                    ir_inline_unionsplit!(compact, idx, argexprs, linetable, item, boundscheck, state.todo_bbs)
                 end
                 compact[idx] = nothing
                 if !isempty(todo)
