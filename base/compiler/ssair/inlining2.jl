@@ -268,7 +268,6 @@ function ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, t
             # something better eventually.
             inline_compact[idx′] = nothing
             stmt′ = ssa_substitute!(idx′, stmt′, argexprs, item.method.sig, item.sparams, linetable_offset, boundscheck_idx, compact)
-            compact.result_lines[idx′] += linetable_offset
             if isa(stmt′, ReturnNode)
                 isa(stmt′.val, SSAValue) && (compact.used_ssas[stmt′.val.id] += 1)
                 return_value = stmt′.val
@@ -292,7 +291,6 @@ function ir_inline_item!(compact, idx, argexprs, linetable, item, boundscheck, t
         for (idx′, stmt′) in inline_compact
             inline_compact[idx′] = nothing
             stmt′ = ssa_substitute!(idx′, stmt′, argexprs, item.method.sig, item.sparams, linetable_offset, boundscheck_idx, compact)
-            compact.result_lines[idx′] += linetable_offset
             if isa(stmt′, ReturnNode)
                 if isdefined(stmt′, :val)
                     push!(pn.edges, inline_compact.active_result_bb-1)
