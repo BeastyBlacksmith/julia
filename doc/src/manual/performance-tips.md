@@ -1121,7 +1121,7 @@ When executing a remote function in parallel:
 responses = Vector{Any}(nworkers())
 @sync begin
     for (idx, pid) in enumerate(workers())
-        @async responses[idx] = remotecall_fetch(pid, foo, args...)
+        @async responses[idx] = remotecall_fetch(foo, pid, args...)
     end
 end
 ```
